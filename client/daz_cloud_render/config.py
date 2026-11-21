@@ -15,9 +15,9 @@ from pathlib import Path
 CONFIG_FILE = Path.home() / ".daz-cloud-render.json"
 
 DEFAULTS = {
-    "vast_api_key": "",
+    "runpod_api_key": "",
     "docker_image": "ghcr.io/hexakosi/daz-cloud-render:latest",
-    "gpu_name": "RTX_4090",
+    "gpu_name": "NVIDIA GeForce RTX 4090",
     "disk_gb": 20,
     "max_session_hours": 4,
     "idle_timeout_minutes": 30,
@@ -27,7 +27,7 @@ DEFAULTS = {
 }
 
 ENV_MAP = {
-    "VAST_API_KEY": "vast_api_key",
+    "RUNPOD_API_KEY": "runpod_api_key",
     "DAZ_CLOUD_IMAGE": "docker_image",
     "DAZ_ROOT_PATHS": "daz_root_paths",
 }
@@ -56,9 +56,9 @@ def load_config():
 
 
 def save_config(config):
-    saveable = {k: v for k, v in config.items() if k in DEFAULTS and k != "vast_api_key"}
-    if config.get("vast_api_key"):
-        saveable["vast_api_key"] = config["vast_api_key"]
+    saveable = {k: v for k, v in config.items() if k in DEFAULTS and k != "runpod_api_key"}
+    if config.get("runpod_api_key"):
+        saveable["runpod_api_key"] = config["runpod_api_key"]
 
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:

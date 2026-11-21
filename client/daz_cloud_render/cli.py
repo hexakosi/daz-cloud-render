@@ -4,12 +4,12 @@ CLI fuer DAZ Cloud Render.
 Befehle:
   init       — Konfiguration erstellen
   analyze    — Szene analysieren (Abhaengigkeiten auflisten)
-  start      — Vast.ai-Instanz starten
+  start      — RunPod-Pod starten
   upload     — Szene + Abhaengigkeiten hochladen
   render     — Render-Job starten
   status     — Job-Status abfragen
   download   — Ergebnis herunterladen
-  destroy    — Instanz zerstoeren
+  destroy    — Pod zerstoeren
   go         — Kompletter Workflow (start → upload → render → download → destroy)
 
 Lizenz: MIT
@@ -25,7 +25,7 @@ from pathlib import Path
 from . import __version__
 from .config import load_config, save_config, auto_detect_daz_paths
 from .deps import analyze_scene
-from .vastai import VastaiClient, VastaiError
+from .runpod import RunpodClient, RunpodError
 from .render_client import RenderClient, RenderClientError
 from .status_file import write_status, clear_status
 
@@ -97,10 +97,10 @@ def cmd_init(args):
     """Konfiguration erstellen oder aktualisieren."""
     config = load_config()
 
-    if not config["vast_api_key"]:
-        key = input("Vast.ai API-Key: ").strip()
+    if not config["runpod_api_key"]:
+        key = input("RunPod API-Key: ").strip()
         if key:
-            config["vast_api_key"] = key
+            config["runpod_api_key"] = key
 
     if not config["docker_image"]:
         image = input("Docker-Image (z.B. deinname/daz-cloud-render:latest): ").strip()
@@ -121,7 +121,7 @@ def cmd_init(args):
     log(f"Konfiguration gespeichert: {Path.home() / '.daz-cloud-render.json'}")
 
     # Zusammenfassung
-    log(f"  API-Key:    {'*' * 8 + config['vast_api_key'][-4:] if config['vast_api_key'] else 'NICHT GESETZT'}")
+    log(f"  API-Key:    {'*' * 8 + config['runpod_api_key'][-4:] if config['runpod_api_key'] else 'NICHT GESETZT'}")
     log(f"  Image:      {config['docker_image'] or 'NICHT GESETZT'}")
     log(f"  GPU:        {config['gpu_name']}")
     log(f"  Root-Pfade: {config['daz_root_paths']}")
@@ -163,9 +163,9 @@ def cmd_analyze(args):
 
 
 def cmd_start(args):
-    """Vast.ai-Instanz starten."""
+    """RunPod-Pod starten."""
     config = load_config()
-    client = VastaiClient(config["vast_api_key"])
+    client = RunpodClient(config["runpod_api_key"])
 
     gpu = args.gpu or config["gpu_name"]
     image = args.image or config["docker_image"]
@@ -182,46 +182,46 @@ def cmd_start(args):
         sys.exit(1)
 
     best = offers[0]
-    price = best.get("dph_total", 0)
+    price = best["price_per_hour"]
     log(f"Guenstigstes Angebot: ${price:.3f}/h")
-    log(f"  GPU: {best.get('gpu_name', '?')} x{best.get('num_gpus', 1)}")
-    log(f"  RAM: {best.get('gpu_ram', 0) / 1024:.0f} GB VRAM")
+    log(f"  GPU: {best['display_name']}")
+    log(f"  RAM: {best['vram_gb']} GB VRAM")
 
     if not args.yes:
-        confirm = input(f"Instanz starten fuer ${price:.3f}/h? (j/N) ").strip().lower()
+        confirm = input(f"Pod starten fuer ${price:.3f}/h? (j/N) ").strip().lower()
         if confirm not in ("j", "ja", "y", "yes"):
             log("Abgebrochen.")
             return
 
-    log("Erstelle Instanz...")
+    log("Erstelle Pod...")
     env_vars = {
         "DAZ_ROOT_PATHS": "/workspace/scenes",
         "MAX_SESSION_HOURS": str(config["max_session_hours"]),
         "IDLE_TIMEOUT_MINUTES": str(config["idle_timeout_minutes"]),
+        "RUNPOD_API_KEY": config["runpod_api_key"],
     }
-    if config["vast_api_key"]:
-        env_vars["VAST_API_KEY"] = config["vast_api_key"]
 
-    result = client.create_instance(
-        offer_id=best["id"],
+    result = client.create_pod(
+        name="daz-cloud-render",
         docker_image=image,
+        gpu_type_id=best["id"],
+        cloud_type=best["cloud_type"],
         disk_gb=config["disk_gb"],
         env_vars=env_vars,
     )
 
-    instance_id = result if isinstance(result, (int, str)) else result.get("id", "?")
-    log(f"Instanz erstellt: {instance_id}")
+    pod_id = result.get("id", "?")
+    log(f"Pod erstellt: {pod_id}")
     log("Warte auf Start...")
 
-    info = client.wait_for_running(str(instance_id))
-    log(f"Instanz laeuft!")
-    log(f"  SSH:     ssh -p {info['ssh_port']} root@{info['ssh_host']}")
-    log(f"  Service: http://{info['ssh_host']}:{info['service_port']}")
+    info = client.wait_for_running(pod_id)
+    log("Pod laeuft!")
+    log(f"  Service: http://{info['host']}:{info['service_port']}")
     log(f"  GPU:     {info['gpu']}")
 
     save_session({
-        "instance_id": str(instance_id),
-        "host": info["ssh_host"],
+        "instance_id": pod_id,
+        "host": info["host"],
         "ssh_port": info["ssh_port"],
         "service_port": info["service_port"],
         "started": time.time(),
@@ -397,7 +397,7 @@ def cmd_download(args):
 
 
 def cmd_destroy(args):
-    """Instanz zerstoeren."""
+    """Pod zerstoeren."""
     config = load_config()
     session = load_session()
 
@@ -407,20 +407,20 @@ def cmd_destroy(args):
 
     instance_id = session.get("instance_id")
     if not instance_id:
-        log("Keine Instance-ID in der Session.")
+        log("Keine Pod-ID in der Session.")
         sys.exit(1)
 
     if not args.yes:
-        confirm = input(f"Instanz {instance_id} zerstoeren? (j/N) ").strip().lower()
+        confirm = input(f"Pod {instance_id} zerstoeren? (j/N) ").strip().lower()
         if confirm not in ("j", "ja", "y", "yes"):
             log("Abgebrochen.")
             return
 
-    client = VastaiClient(config["vast_api_key"])
+    client = RunpodClient(config["runpod_api_key"])
 
-    log(f"Zerstoere Instanz {instance_id}...")
-    client.destroy_instance(instance_id)
-    log("Instanz zerstoert.")
+    log(f"Zerstoere Pod {instance_id}...")
+    client.destroy_pod(instance_id)
+    log("Pod zerstoert.")
 
     elapsed = time.time() - session.get("started", time.time())
     log(f"Session-Dauer: {elapsed / 60:.0f} Minuten")
@@ -513,7 +513,7 @@ def cmd_go(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="daz-cloud-render",
-        description="DAZ Studio Cloud Rendering auf Vast.ai",
+        description="DAZ Studio Cloud Rendering auf RunPod",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", help="Befehl")
@@ -528,7 +528,7 @@ def main():
     p.add_argument("-v", "--verbose", action="store_true")
 
     # start
-    p = sub.add_parser("start", help="Vast.ai-Instanz starten")
+    p = sub.add_parser("start", help="RunPod-Pod starten")
     p.add_argument("--gpu", help="GPU-Typ (z.B. RTX_4090)")
     p.add_argument("--image", help="Docker-Image")
     p.add_argument("-y", "--yes", action="store_true", help="Ohne Rueckfrage")
@@ -561,7 +561,7 @@ def main():
     p.add_argument("-o", "--output-dir", help="Zielverzeichnis")
 
     # destroy
-    p = sub.add_parser("destroy", help="Instanz zerstoeren")
+    p = sub.add_parser("destroy", help="Pod zerstoeren")
     p.add_argument("-y", "--yes", action="store_true")
 
     # go
@@ -599,7 +599,7 @@ def main():
 
     try:
         commands[args.command](args)
-    except (VastaiError, RenderClientError) as e:
+    except (RunpodError, RenderClientError) as e:
         log(f"FEHLER: {e}")
         sys.exit(1)
     except KeyboardInterrupt:

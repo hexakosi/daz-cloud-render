@@ -10,8 +10,8 @@
 # Manueller Test (CPU):
 #   docker run --rm -it daz-cloud-render:latest blender -b --version
 #
-# Vast.ai (GPU):
-#   Template mit diesem Image erstellen, SSH-Modus, Port 22 + 8080
+# RunPod (GPU):
+#   Template mit diesem Image erstellen, Ports 22/tcp + 8080/http
 
 ARG BASE_IMAGE=vastai/base-image:cuda-12.8.1-cudnn-devel-ubuntu22.04
 FROM ${BASE_IMAGE}
@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Python-Abhaengigkeiten (Render-Service + Watchdog) ---
-RUN pip3 install --no-cache-dir flask vastai
+RUN pip3 install --no-cache-dir flask
 
 # --- Blender installieren ---
 RUN BLENDER_URL="https://download.blender.org/release/Blender${BLENDER_MAJOR}/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
@@ -95,7 +95,7 @@ ENV DAZ_ROOT_PATHS="/workspace/scenes"
 ENV RENDER_OUTPUT="/workspace/results"
 ENV MAX_SESSION_HOURS="4"
 ENV IDLE_TIMEOUT_MINUTES="30"
-# VAST_API_KEY wird zur Laufzeit gesetzt, NIE ins Image!
+# RUNPOD_API_KEY und RUNPOD_POD_ID werden zur Laufzeit gesetzt, NIE ins Image!
 
 # --- Entrypoint ---
 COPY scripts/entrypoint.sh /opt/daz-cloud-render/entrypoint.sh

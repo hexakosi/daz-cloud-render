@@ -1,13 +1,13 @@
 """
 Heartbeat-Watchdog mit Selbstzerstoerung.
 
-Ueberwacht die Aktivitaet des Render-Service und zerstoert die Vast.ai-Instanz
+Ueberwacht die Aktivitaet des Render-Service und zerstoert den RunPod-Pod
 wenn:
   - MAX_SESSION_HOURS ueberschritten (harte Grenze)
   - IDLE_TIMEOUT_MINUTES ohne Aktivitaet (weiche Grenze, kein aktiver Job)
 
-Die Selbstzerstoerung braucht VAST_API_KEY (Laufzeit-Umgebungsvariable).
-Ohne API-Key loggt der Watchdog nur Warnungen.
+Die Selbstzerstoerung braucht RUNPOD_API_KEY und RUNPOD_POD_ID
+(Laufzeit-Umgebungsvariablen). Ohne API-Key loggt der Watchdog nur Warnungen.
 
 Lizenz: GPL-2.0-or-later
 """
@@ -52,20 +52,12 @@ def has_active_render():
         return False
 
 
-def get_instance_id():
-    """Vast.ai-Instance-ID ermitteln."""
-    # Methode 1: Umgebungsvariable
-    iid = os.environ.get("VAST_CONTAINERLABEL", "")
-    if iid:
-        return iid
+def get_pod_id():
+    """RunPod Pod-ID ermitteln."""
+    pod_id = os.environ.get("RUNPOD_POD_ID", "")
+    if pod_id:
+        return pod_id
 
-    # Methode 2: Datei (von Vast.ai geschrieben)
-    try:
-        return Path("/etc/vast_containerlabel").read_text().strip()
-    except FileNotFoundError:
-        pass
-
-    # Methode 3: Container-ID aus hostname
     try:
         result = subprocess.run(["hostname"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
@@ -76,54 +68,47 @@ def get_instance_id():
     return None
 
 
-def destroy_instance():
-    """Vast.ai-Instanz zerstoeren."""
-    api_key = os.environ.get("VAST_API_KEY", "")
-    instance_id = get_instance_id()
+def destroy_pod():
+    """RunPod-Pod zerstoeren."""
+    api_key = os.environ.get("RUNPOD_API_KEY", "")
+    pod_id = get_pod_id()
 
     if not api_key:
-        log("KEIN VAST_API_KEY — kann Instanz nicht zerstoeren!")
-        log("Instanz muss manuell zerstoert werden.")
+        log("KEIN RUNPOD_API_KEY — kann Pod nicht zerstoeren!")
+        log("Pod muss manuell zerstoert werden.")
         SHUTDOWN_FILE.write_text("no_api_key")
         return False
 
-    if not instance_id:
-        log("Instance-ID nicht ermittelbar — kann nicht zerstoeren!")
-        SHUTDOWN_FILE.write_text("no_instance_id")
+    if not pod_id:
+        log("Pod-ID nicht ermittelbar — kann nicht zerstoeren!")
+        SHUTDOWN_FILE.write_text("no_pod_id")
         return False
 
-    log(f"ZERSTOERE Instanz {instance_id}...")
+    log(f"ZERSTOERE Pod {pod_id}...")
 
     try:
-        result = subprocess.run(
-            ["vastai", "destroy", "instance", instance_id,
-             "--api-key", api_key],
-            capture_output=True, text=True, timeout=30,
+        import urllib.request
+        import urllib.error
+
+        url = f"https://api.runpod.io/graphql?api_key={api_key}"
+        query = json.dumps({
+            "query": 'mutation { podTerminate(input: { podId: "%s" }) }' % pod_id
+        }).encode()
+        req = urllib.request.Request(
+            url, data=query,
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
 
-        if result.returncode == 0:
-            log(f"Instanz {instance_id} zerstoert.")
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+
+        if "errors" not in result or not result["errors"]:
+            log(f"Pod {pod_id} zerstoert.")
             SHUTDOWN_FILE.write_text("destroyed")
             return True
         else:
-            log(f"vastai destroy fehlgeschlagen: {result.stderr}")
-
-            # Fallback: curl
-            log("Versuche Fallback via curl...")
-            result = subprocess.run(
-                ["curl", "-s", "-X", "PUT",
-                 f"https://console.vast.ai/api/v0/instances/{instance_id}/",
-                 "-H", f"Authorization: Bearer {api_key}",
-                 "-H", "Content-Type: application/json",
-                 "-d", '{"state": "destroy"}'],
-                capture_output=True, text=True, timeout=30,
-            )
-            if result.returncode == 0:
-                log(f"Instanz via API zerstoert: {result.stdout}")
-                SHUTDOWN_FILE.write_text("destroyed_via_api")
-                return True
-            else:
-                log(f"Auch API-Fallback fehlgeschlagen: {result.stderr}")
+            log(f"API-Fehler: {result['errors']}")
 
     except Exception as e:
         log(f"Fehler beim Zerstoeren: {e}")
@@ -142,8 +127,8 @@ def main():
     log(f"Max Session:    {MAX_SESSION_HOURS}h ({max_seconds:.0f}s)")
     log(f"Idle Timeout:   {IDLE_TIMEOUT_MINUTES}min ({idle_seconds:.0f}s)")
     log(f"Check-Intervall: {CHECK_INTERVAL}s")
-    log(f"API-Key:        {'gesetzt' if os.environ.get('VAST_API_KEY') else 'NICHT GESETZT'}")
-    log(f"Instance-ID:    {get_instance_id() or 'unbekannt'}")
+    log(f"API-Key:        {'gesetzt' if os.environ.get('RUNPOD_API_KEY') else 'NICHT GESETZT'}")
+    log(f"Pod-ID:         {get_pod_id() or 'unbekannt'}")
     log("")
 
     while True:
@@ -173,13 +158,13 @@ def main():
                 time.sleep(300)
                 if has_active_render():
                     log("Render laeuft immer noch — zerstoere trotzdem.")
-            destroy_instance()
+            destroy_pod()
             break
 
         # Weiche Grenze: Inaktivitaet (nur wenn kein Render laeuft)
         if idle_time >= idle_seconds and not active:
             log(f"IDLE TIMEOUT ({IDLE_TIMEOUT_MINUTES}min ohne Aktivitaet)")
-            destroy_instance()
+            destroy_pod()
             break
 
         # Warnung bei 80% der Max-Session

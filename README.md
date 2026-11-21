@@ -1,12 +1,12 @@
 # DAZ Cloud Render
 
-GPU-Rendering von DAZ-Studio-Szenen auf gemieteten Cloud-Servern (Vast.ai).
+GPU-Rendering von DAZ-Studio-Szenen auf gemieteten Cloud-Servern (RunPod).
 
 **Problem:** DAZ Studio rendert mit Iray auf der lokalen GPU. Ohne leistungsfaehige
 Nvidia-GPU dauert ein Render ewig oder geht gar nicht.
 
-**Loesung:** Szene automatisch analysieren, auf einen gemieteten GPU-Server hochladen,
-dort in Blender/Cycles rendern, Ergebnis herunterladen, Server zerstoeren.
+**Loesung:** Szene automatisch analysieren, auf einen gemieteten RunPod GPU-Server hochladen,
+dort in Blender/Cycles rendern, Ergebnis herunterladen, Pod zerstoeren.
 
 ```
 DAZ Studio  →  Diffeomorphic Import  →  Blender Cycles (GPU)  →  Ergebnis
@@ -20,7 +20,7 @@ DAZ Studio  →  Diffeomorphic Import  →  Blender Cycles (GPU)  →  Ergebnis
 cd client
 pip install -e .
 
-# 2. Konfigurieren (API-Key, Docker-Image, DAZ-Pfade)
+# 2. Konfigurieren (RunPod-API-Key, Docker-Image, DAZ-Pfade)
 daz-cloud-render init
 
 # 3. Szene analysieren
@@ -36,7 +36,7 @@ Oder direkt aus DAZ Studio: **File → Run Script → cloud_render.dsa**
 
 ```
 ┌─────────────┐          ┌──────────────────────────────────┐
-│  Dein PC    │          │  Vast.ai GPU-Server              │
+│  Dein PC    │          │  RunPod GPU-Server               │
 │             │          │                                  │
 │  DAZ Studio │  .duf    │  Flask Render-Service (:8080)    │
 │  ──────────►│──upload─►│  ──► Blender + Diffeomorphic     │
@@ -63,21 +63,21 @@ Oder direkt aus DAZ Studio: **File → Run Script → cloud_render.dsa**
 - **Inkrementeller Upload**: Nur geaenderte Dateien werden hochgeladen
 - **Material-Presets**: Iray → Cycles Anpassung mit typ-basiertem Matching
 - **Selbstzerstoerung**: Instanz wird nach Inaktivitaet automatisch geloescht
-- **Kein Vendor-Lock-in**: Vast.ai REST-API, Standard-Docker
+- **Kein Vendor-Lock-in**: RunPod GraphQL-API, Standard-Docker
 
 ## Sicherheit
 
 - **Keine Secrets im Image**: API-Keys nur als Laufzeit-Umgebungsvariablen
 - **Keine kommerziellen Inhalte im Repo**: DAZ-Assets werden pro Sitzung hochgeladen
 - **Gitleaks**: Automatisches Secret-Scanning in der CI-Pipeline
-- **Instanz-Zerstoerung**: Watchdog + Idle-Timeout verhindern vergessene Server
+- **Pod-Zerstoerung**: Watchdog + Idle-Timeout verhindern vergessene Pods
 - **Pfad-Traversal-Schutz**: Upload/Download validieren Pfade
 
 ## Voraussetzungen
 
 - Python >= 3.8
 - Docker (nur fuer lokalen Build; CI baut automatisch)
-- Vast.ai-Account mit API-Key
+- RunPod-Account mit API-Key
 - DAZ Studio (fuer die Szenen)
 
 ## Docker-Image
