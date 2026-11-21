@@ -1,0 +1,323 @@
+// DAZ Cloud Render — DAZ Studio Script
+//
+// Exportiert die aktuelle Szene fuer Blender und startet das Cloud-Rendering.
+// Zeigt ein Fortschrittsfenster und oeffnet das Ergebnis.
+//
+// Installation:
+//   1. Dieses Skript in den DAZ-Scripts-Ordner kopieren
+//   2. In DAZ Studio: File → Run Script... → cloud_render.dsa
+//   Oder: Per Custom Action auf einen Button legen
+//
+// Voraussetzungen:
+//   - Python 3 im PATH
+//   - daz-cloud-render Client installiert (pip install -e client/)
+//   - Konfiguration erstellt (daz-cloud-render init)
+//
+// Lizenz: MIT
+
+(function(){
+
+// --- Konfiguration ---
+var sPythonCmd = "python";
+var sModuleName = "daz_cloud_render";
+var sStatusFile = String("%1/.daz-cloud-render-status.json").arg(App.getHomePath());
+var nPollInterval = 2000; // ms
+
+// --- Hilfsfunktionen ---
+
+function fileExists(sPath) {
+    var oFile = new DzFile(sPath);
+    return oFile.exists();
+}
+
+function readFile(sPath) {
+    var oFile = new DzFile(sPath);
+    if (!oFile.open(DzFile.ReadOnly)) return "";
+    var sContent = oFile.read();
+    oFile.close();
+    return sContent;
+}
+
+function readStatus() {
+    if (!fileExists(sStatusFile)) return null;
+    var sContent = readFile(sStatusFile);
+    if (!sContent) return null;
+    try {
+        return JSON.parse(sContent);
+    } catch(e) {
+        return null;
+    }
+}
+
+function getScenePath() {
+    var oScene = Scene;
+    var sPath = oScene.getFilename();
+    if (!sPath || sPath == "") {
+        MessageBox.warning(
+            "Bitte speichere die Szene zuerst (File → Save As...).",
+            "DAZ Cloud Render", "&OK"
+        );
+        return null;
+    }
+    return sPath;
+}
+
+function getSceneDir(sScenePath) {
+    var oFileInfo = new DzFileInfo(sScenePath);
+    return oFileInfo.path();
+}
+
+function getSceneName(sScenePath) {
+    var oFileInfo = new DzFileInfo(sScenePath);
+    return oFileInfo.baseName();
+}
+
+// --- Export to Blender ---
+
+function exportToBlender(sScenePath) {
+    // Pruefe ob .dbz schon existiert
+    var sDbzPath = sScenePath.replace(/\.duf$/i, ".dbz");
+    if (fileExists(sDbzPath)) {
+        var nChoice = MessageBox.question(
+            "Eine .dbz-Datei existiert bereits.\n" +
+            "Neu exportieren (empfohlen nach Aenderungen)?",
+            "DAZ Cloud Render",
+            "&Neu exportieren", "&Vorhandene nutzen", "&Abbrechen"
+        );
+        if (nChoice == 2) return false; // Abbrechen
+        if (nChoice == 1) return true;  // Vorhandene nutzen
+    }
+
+    // Export to Blender ausfuehren
+    var oExportMgr = App.getExportMgr();
+    var oExporter = oExportMgr.findExporterByClassName("DzBlenderExporter");
+
+    if (!oExporter) {
+        // Fallback: "Export to Blender" ueber Action
+        var oAction = MainWindow.getActionMgr().findAction("DzBlenderExportAction");
+        if (oAction) {
+            oAction.trigger();
+            // Warte kurz auf den Export
+            sleep(2000);
+            return fileExists(sDbzPath);
+        }
+
+        MessageBox.warning(
+            "Blender-Export nicht gefunden.\n" +
+            "Bitte installiere das 'Blender Bridge' Plugin oder\n" +
+            "exportiere manuell ueber File → Export → Blender.",
+            "DAZ Cloud Render", "&OK"
+        );
+        return false;
+    }
+
+    return true;
+}
+
+// --- Render-Dialog ---
+
+function showRenderDialog(sScenePath) {
+    var dlg = new DzBasicDialog();
+    dlg.caption = "DAZ Cloud Render";
+    dlg.setFixedSize(450, 320);
+
+    // Layout
+    var wMainLayout = new DzVBoxLayout(dlg);
+    wMainLayout.margin = 15;
+    wMainLayout.spacing = 10;
+
+    // Titel
+    var wTitle = new DzLabel(dlg);
+    wTitle.text = "<h3>Cloud Render</h3>";
+    wMainLayout.addWidget(wTitle);
+
+    // Szenen-Info
+    var wScene = new DzLabel(dlg);
+    wScene.text = "Szene: " + getSceneName(sScenePath);
+    wMainLayout.addWidget(wScene);
+
+    // Status
+    var wStatus = new DzLabel(dlg);
+    wStatus.text = "Bereit zum Starten";
+    wMainLayout.addWidget(wStatus);
+
+    // Fortschrittsbalken
+    var wProgress = new DzProgressBar(dlg);
+    wProgress.minimum = 0;
+    wProgress.maximum = 5;
+    wProgress.value = 0;
+    wProgress.showText = true;
+    wMainLayout.addWidget(wProgress);
+
+    // Detail-Info
+    var wDetail = new DzLabel(dlg);
+    wDetail.text = "";
+    wMainLayout.addWidget(wDetail);
+
+    // Spacer
+    wMainLayout.addStretch();
+
+    // Optionen
+    var wOptionsLayout = new DzHBoxLayout(wMainLayout);
+
+    var wSamplesLabel = new DzLabel(dlg);
+    wSamplesLabel.text = "Samples:";
+    wOptionsLayout.addWidget(wSamplesLabel);
+
+    var wSamples = new DzIntSlider(dlg);
+    wSamples.min = 16;
+    wSamples.max = 1024;
+    wSamples.value = 128;
+    wOptionsLayout.addWidget(wSamples);
+
+    // Resolution
+    var wResLayout = new DzHBoxLayout(wMainLayout);
+
+    var wResLabel = new DzLabel(dlg);
+    wResLabel.text = "Aufloesung:";
+    wResLayout.addWidget(wResLabel);
+
+    var wResCombo = new DzComboBox(dlg);
+    wResCombo.addItem("1920x1080 (Full HD)");
+    wResCombo.addItem("2560x1440 (QHD)");
+    wResCombo.addItem("3840x2160 (4K)");
+    wResCombo.addItem("1280x720 (HD)");
+    wResCombo.addItem("640x480 (Test)");
+    wResLayout.addWidget(wResCombo);
+
+    // Buttons
+    var wBtnLayout = new DzHBoxLayout(wMainLayout);
+    wBtnLayout.addStretch();
+
+    var wStartBtn = new DzPushButton(dlg);
+    wStartBtn.text = "Render starten";
+    wStartBtn.minWidth = 120;
+    wBtnLayout.addWidget(wStartBtn);
+
+    var wCloseBtn = new DzPushButton(dlg);
+    wCloseBtn.text = "Schliessen";
+    wCloseBtn.minWidth = 80;
+    wBtnLayout.addWidget(wCloseBtn);
+
+    // --- Logik ---
+
+    var bRunning = false;
+    var oTimer = new DzTimer();
+    oTimer.interval = nPollInterval;
+    oTimer.singleShot = false;
+
+    var aResolutions = [
+        "1920x1080", "2560x1440", "3840x2160", "1280x720", "640x480"
+    ];
+
+    function getResolution() {
+        return aResolutions[wResCombo.currentItem] || "1920x1080";
+    }
+
+    function updateFromStatus() {
+        var oStatus = readStatus();
+        if (!oStatus) return;
+
+        var sPhase = oStatus.phase || "";
+        var sMsg = oStatus.message || "";
+        var nPct = oStatus.percent || 0;
+        var nProgress = oStatus.progress || 0;
+
+        wStatus.text = "<b>" + sMsg + "</b>";
+        wProgress.value = nProgress;
+
+        if (sPhase == "done") {
+            oTimer.stop();
+            bRunning = false;
+            wStartBtn.enabled = true;
+            wStartBtn.text = "Erneut rendern";
+            wDetail.text = "Rendering abgeschlossen!";
+
+            if (oStatus.result_file && fileExists(oStatus.result_file)) {
+                wDetail.text = "Ergebnis: " + oStatus.result_file;
+                // Ergebnis oeffnen
+                App.showURL("file:///" + oStatus.result_file);
+            }
+        }
+        else if (sPhase == "error") {
+            oTimer.stop();
+            bRunning = false;
+            wStartBtn.enabled = true;
+            wStartBtn.text = "Erneut versuchen";
+            wDetail.text = "<font color='red'>Fehler: " +
+                           (oStatus.error || "Unbekannt") + "</font>";
+        }
+        else {
+            var aPhaseNames = {
+                "start": "Instanz starten",
+                "upload": "Hochladen",
+                "render": "Rendern",
+                "download": "Herunterladen",
+                "destroy": "Aufraeumen"
+            };
+            wDetail.text = (aPhaseNames[sPhase] || sPhase) +
+                           " (" + Math.round(nPct) + "%)";
+        }
+    }
+
+    connect(oTimer, "timeout()", updateFromStatus);
+
+    connect(wStartBtn, "clicked()", function() {
+        if (bRunning) return;
+        bRunning = true;
+        wStartBtn.enabled = false;
+        wStartBtn.text = "Laeuft...";
+        wStatus.text = "<b>Starte Cloud Render...</b>";
+        wProgress.value = 0;
+
+        var nSamples = wSamples.value;
+        var sRes = getResolution();
+        var sOutputDir = getSceneDir(sScenePath);
+
+        // Python-Client im Hintergrund starten
+        var oProcess = new DzProcess();
+        var aArgs = [
+            "-m", sModuleName, "go",
+            sScenePath,
+            "--samples", String(nSamples),
+            "--resolution", sRes,
+            "--output-dir", sOutputDir,
+            "-y"
+        ];
+
+        oProcess.start(sPythonCmd, aArgs);
+        oTimer.start();
+    });
+
+    connect(wCloseBtn, "clicked()", function() {
+        oTimer.stop();
+        dlg.close();
+    });
+
+    dlg.exec();
+
+    // Aufraeumen
+    oTimer.stop();
+}
+
+// --- Hauptprogramm ---
+
+var sScenePath = getScenePath();
+if (!sScenePath) return;
+
+// .dbz exportieren (fuer Mesh-Fitting)
+var bExported = exportToBlender(sScenePath);
+if (!bExported && !fileExists(sScenePath.replace(/\.duf$/i, ".dbz"))) {
+    var nContinue = MessageBox.question(
+        "Kein Blender-Export (.dbz) vorhanden.\n" +
+        "Ohne .dbz ist die Mesh-Qualitaet reduziert.\n\n" +
+        "Trotzdem fortfahren?",
+        "DAZ Cloud Render",
+        "&Fortfahren", "&Abbrechen"
+    );
+    if (nContinue != 0) return;
+}
+
+showRenderDialog(sScenePath);
+
+})();

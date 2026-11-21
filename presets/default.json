@@ -1,0 +1,45 @@
+{
+  "name": "Standard",
+  "description": "Ausgewogene Einstellungen fuer die meisten Szenen",
+  "global": {
+    "subsurface_scale": 0.01,
+    "roughness_offset": 0.0,
+    "specular": 0.5
+  },
+  "by_type": {
+    "skin": {
+      "match": ["skin", "face", "body", "lip", "ear", "hand", "foot", "arm", "leg", "torso", "head", "neck"],
+      "subsurface_scale": 0.02,
+      "subsurface_color": [0.8, 0.4, 0.3],
+      "roughness_offset": 0.05
+    },
+    "eye": {
+      "match": ["eye", "cornea", "iris", "sclera", "pupil", "tear", "moisture"],
+      "roughness": 0.05,
+      "specular": 0.8,
+      "transmission": 0.0
+    },
+    "hair": {
+      "match": ["hair", "brow", "lash", "beard", "mustache"],
+      "roughness_offset": -0.1,
+      "specular": 0.6
+    },
+    "fabric": {
+      "match": ["fabric", "cloth", "cotton", "silk", "linen", "wool", "denim", "shirt", "pants", "dress", "skirt"],
+      "subsurface_scale": 0.0,
+      "roughness_offset": 0.1
+    },
+    "metal": {
+      "match": ["metal", "steel", "iron", "gold", "silver", "copper", "bronze", "chrome", "aluminum"],
+      "metallic": 1.0,
+      "roughness": 0.3,
+      "specular": 0.8
+    },
+    "glass": {
+      "match": ["glass", "lens", "crystal", "gem", "diamond"],
+      "transmission": 1.0,
+      "roughness": 0.0,
+      "ior": 1.5
+    }
+  }
+}

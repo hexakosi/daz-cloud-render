@@ -1,0 +1,29 @@
+{
+  "name": "Produktfoto",
+  "description": "Scharfe Materialien, hoher Kontrast fuer Kleidung/Objekte",
+  "global": {
+    "subsurface_scale": 0.0,
+    "specular": 0.6,
+    "roughness_offset": -0.05
+  },
+  "by_type": {
+    "fabric": {
+      "match": ["fabric", "cloth", "cotton", "silk", "linen", "wool", "denim", "leather", "shirt", "pants", "dress"],
+      "roughness_offset": 0.05,
+      "specular": 0.4
+    },
+    "leather": {
+      "match": ["leather", "belt", "boot", "shoe", "strap"],
+      "roughness": 0.4,
+      "specular": 0.55,
+      "coat": 0.3,
+      "coat_roughness": 0.1
+    },
+    "metal": {
+      "match": ["metal", "steel", "gold", "silver", "chrome", "buckle", "button", "zipper"],
+      "metallic": 1.0,
+      "roughness": 0.15,
+      "specular": 0.9
+    }
+  }
+}

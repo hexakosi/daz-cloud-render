@@ -1,0 +1,353 @@
+// DAZ Cloud Render — Material-Sidebar
+//
+// Zeigt ein Seitenpanel in DAZ Studio mit:
+//   - Preset-Auswahl (Standard, Portrait, Produkt, Schnell)
+//   - Globale Material-Parameter (SSS, Roughness, Specular)
+//   - Typ-spezifische Anpassungen (Haut, Augen, Haare, Stoff, Metall)
+//   - Export der Konfiguration als JSON
+//
+// Das Panel schreibt die Material-Config in eine JSON-Datei,
+// die beim Rendern an den Server uebergeben wird.
+//
+// Lizenz: MIT
+
+(function(){
+
+var sConfigDir = String("%1/.daz-cloud-render-materials").arg(App.getHomePath());
+var sActiveConfig = String("%1/.daz-cloud-render-material-config.json").arg(App.getHomePath());
+
+// --- Preset-Definitionen ---
+
+var oPresets = {
+    "standard": {
+        name: "Standard",
+        description: "Ausgewogene Einstellungen",
+        global: { subsurface_scale: 0.01, roughness_offset: 0.0, specular: 0.5 },
+        skin: { subsurface_scale: 0.02, roughness_offset: 0.05 },
+        eye: { roughness: 0.05, specular: 0.8 },
+        hair: { roughness_offset: -0.1, specular: 0.6 },
+        fabric: { subsurface_scale: 0.0, roughness_offset: 0.1 },
+        metal: { metallic: 1.0, roughness: 0.3 }
+    },
+    "portrait": {
+        name: "Portrait",
+        description: "Realistische Haut, Nahaufnahmen",
+        global: { subsurface_scale: 0.015, specular: 0.5 },
+        skin: { subsurface_scale: 0.03, roughness: 0.35, specular: 0.55 },
+        eye: { roughness: 0.02, specular: 0.9 },
+        hair: { roughness_offset: -0.15, specular: 0.65 },
+        fabric: { roughness_offset: 0.05 },
+        metal: { metallic: 1.0, roughness: 0.2 }
+    },
+    "product": {
+        name: "Produktfoto",
+        description: "Scharfe Materialien, hoher Kontrast",
+        global: { subsurface_scale: 0.0, specular: 0.6, roughness_offset: -0.05 },
+        skin: { subsurface_scale: 0.01, roughness: 0.4 },
+        eye: { roughness: 0.03, specular: 0.85 },
+        hair: { roughness_offset: -0.1, specular: 0.5 },
+        fabric: { roughness_offset: 0.05, specular: 0.4 },
+        metal: { metallic: 1.0, roughness: 0.15, specular: 0.9 }
+    },
+    "fast": {
+        name: "Schnelle Vorschau",
+        description: "Vereinfacht, fuer Testrenders",
+        global: { subsurface_scale: 0.0, roughness: 0.5, specular: 0.5 },
+        skin: {},
+        eye: {},
+        hair: {},
+        fabric: {},
+        metal: {}
+    }
+};
+
+// --- Hilfsfunktionen ---
+
+function ensureDir(sPath) {
+    var oDir = new DzDir(sPath);
+    if (!oDir.exists()) oDir.mkpath(".");
+}
+
+function writeFile(sPath, sContent) {
+    var oFile = new DzFile(sPath);
+    if (!oFile.open(DzFile.WriteOnly)) return false;
+    oFile.write(sContent);
+    oFile.close();
+    return true;
+}
+
+function readFile(sPath) {
+    var oFile = new DzFile(sPath);
+    if (!oFile.open(DzFile.ReadOnly)) return "";
+    var s = oFile.read();
+    oFile.close();
+    return s;
+}
+
+function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+}
+
+// --- Dialog bauen ---
+
+function showMaterialSidebar() {
+    var dlg = new DzBasicDialog();
+    dlg.caption = "Cloud Render — Materialien";
+    dlg.setFixedSize(380, 600);
+
+    var wMain = new DzVBoxLayout(dlg);
+    wMain.margin = 12;
+    wMain.spacing = 8;
+
+    // Titel
+    var wTitle = new DzLabel(dlg);
+    wTitle.text = "<h3>Material-Einstellungen</h3>";
+    wMain.addWidget(wTitle);
+
+    // --- Preset-Auswahl ---
+    var wPresetLayout = new DzHBoxLayout(wMain);
+    var wPresetLabel = new DzLabel(dlg);
+    wPresetLabel.text = "Preset:";
+    wPresetLayout.addWidget(wPresetLabel);
+
+    var wPresetCombo = new DzComboBox(dlg);
+    wPresetCombo.addItem("Standard");
+    wPresetCombo.addItem("Portrait");
+    wPresetCombo.addItem("Produktfoto");
+    wPresetCombo.addItem("Schnelle Vorschau");
+    wPresetCombo.addItem("Benutzerdefiniert");
+    wPresetLayout.addWidget(wPresetCombo);
+
+    var aPresetKeys = ["standard", "portrait", "product", "fast", "custom"];
+
+    // Beschreibung
+    var wDesc = new DzLabel(dlg);
+    wDesc.text = oPresets["standard"].description;
+    wMain.addWidget(wDesc);
+
+    // Trennlinie
+    var wSep1 = new DzLabel(dlg);
+    wSep1.text = "<hr>";
+    wMain.addWidget(wSep1);
+
+    // --- Globale Einstellungen ---
+    var wGlobalLabel = new DzLabel(dlg);
+    wGlobalLabel.text = "<b>Global</b>";
+    wMain.addWidget(wGlobalLabel);
+
+    // SSS
+    var wSssLayout = new DzHBoxLayout(wMain);
+    var wSssLabel = new DzLabel(dlg);
+    wSssLabel.text = "Subsurface:";
+    wSssLabel.minWidth = 90;
+    wSssLayout.addWidget(wSssLabel);
+    var wSss = new DzFloatSlider(dlg);
+    wSss.min = 0; wSss.max = 0.1; wSss.value = 0.01;
+    wSss.sensitivity = 0.001;
+    wSssLayout.addWidget(wSss);
+
+    // Roughness Offset
+    var wRoughLayout = new DzHBoxLayout(wMain);
+    var wRoughLabel = new DzLabel(dlg);
+    wRoughLabel.text = "Roughness +/-:";
+    wRoughLabel.minWidth = 90;
+    wRoughLayout.addWidget(wRoughLabel);
+    var wRough = new DzFloatSlider(dlg);
+    wRough.min = -0.5; wRough.max = 0.5; wRough.value = 0.0;
+    wRough.sensitivity = 0.01;
+    wRoughLayout.addWidget(wRough);
+
+    // Specular
+    var wSpecLayout = new DzHBoxLayout(wMain);
+    var wSpecLabel = new DzLabel(dlg);
+    wSpecLabel.text = "Specular:";
+    wSpecLabel.minWidth = 90;
+    wSpecLayout.addWidget(wSpecLabel);
+    var wSpec = new DzFloatSlider(dlg);
+    wSpec.min = 0; wSpec.max = 1.0; wSpec.value = 0.5;
+    wSpec.sensitivity = 0.01;
+    wSpecLayout.addWidget(wSpec);
+
+    // Trennlinie
+    var wSep2 = new DzLabel(dlg);
+    wSep2.text = "<hr>";
+    wMain.addWidget(wSep2);
+
+    // --- Typ-spezifisch: Haut ---
+    var wSkinLabel = new DzLabel(dlg);
+    wSkinLabel.text = "<b>Haut</b>";
+    wMain.addWidget(wSkinLabel);
+
+    var wSkinSssLayout = new DzHBoxLayout(wMain);
+    var wSkinSssLabel = new DzLabel(dlg);
+    wSkinSssLabel.text = "SSS Haut:";
+    wSkinSssLabel.minWidth = 90;
+    wSkinSssLayout.addWidget(wSkinSssLabel);
+    var wSkinSss = new DzFloatSlider(dlg);
+    wSkinSss.min = 0; wSkinSss.max = 0.1; wSkinSss.value = 0.02;
+    wSkinSss.sensitivity = 0.001;
+    wSkinSssLayout.addWidget(wSkinSss);
+
+    var wSkinRoughLayout = new DzHBoxLayout(wMain);
+    var wSkinRoughLabel = new DzLabel(dlg);
+    wSkinRoughLabel.text = "Roughness:";
+    wSkinRoughLabel.minWidth = 90;
+    wSkinRoughLayout.addWidget(wSkinRoughLabel);
+    var wSkinRough = new DzFloatSlider(dlg);
+    wSkinRough.min = 0; wSkinRough.max = 1.0; wSkinRough.value = 0.4;
+    wSkinRough.sensitivity = 0.01;
+    wSkinRoughLayout.addWidget(wSkinRough);
+
+    // --- Typ-spezifisch: Augen ---
+    var wEyeLabel = new DzLabel(dlg);
+    wEyeLabel.text = "<b>Augen</b>";
+    wMain.addWidget(wEyeLabel);
+
+    var wEyeRoughLayout = new DzHBoxLayout(wMain);
+    var wEyeRoughLabel = new DzLabel(dlg);
+    wEyeRoughLabel.text = "Roughness:";
+    wEyeRoughLabel.minWidth = 90;
+    wEyeRoughLayout.addWidget(wEyeRoughLabel);
+    var wEyeRough = new DzFloatSlider(dlg);
+    wEyeRough.min = 0; wEyeRough.max = 0.5; wEyeRough.value = 0.05;
+    wEyeRough.sensitivity = 0.01;
+    wEyeRoughLayout.addWidget(wEyeRough);
+
+    // Spacer
+    wMain.addStretch();
+
+    // --- Buttons ---
+    var wBtnLayout = new DzHBoxLayout(wMain);
+    wBtnLayout.addStretch();
+
+    var wSaveBtn = new DzPushButton(dlg);
+    wSaveBtn.text = "Speichern";
+    wSaveBtn.minWidth = 90;
+    wBtnLayout.addWidget(wSaveBtn);
+
+    var wApplyBtn = new DzPushButton(dlg);
+    wApplyBtn.text = "Anwenden";
+    wApplyBtn.minWidth = 90;
+    wBtnLayout.addWidget(wApplyBtn);
+
+    var wCloseBtn = new DzPushButton(dlg);
+    wCloseBtn.text = "Schliessen";
+    wCloseBtn.minWidth = 80;
+    wBtnLayout.addWidget(wCloseBtn);
+
+    // --- Logik ---
+
+    function loadPreset(sKey) {
+        if (sKey == "custom") return;
+        var p = oPresets[sKey];
+        if (!p) return;
+
+        wDesc.text = p.description;
+
+        var g = p.global || {};
+        if ("subsurface_scale" in g) wSss.value = g.subsurface_scale;
+        if ("roughness_offset" in g) wRough.value = g.roughness_offset;
+        if ("specular" in g) wSpec.value = g.specular;
+
+        var sk = p.skin || {};
+        if ("subsurface_scale" in sk) wSkinSss.value = sk.subsurface_scale;
+        if ("roughness" in sk) wSkinRough.value = sk.roughness;
+        else if ("roughness_offset" in sk) wSkinRough.value = 0.4 + sk.roughness_offset;
+
+        var ey = p.eye || {};
+        if ("roughness" in ey) wEyeRough.value = ey.roughness;
+    }
+
+    function buildConfig() {
+        return {
+            name: "Benutzerdefiniert",
+            global: {
+                subsurface_scale: wSss.value,
+                roughness_offset: wRough.value,
+                specular: wSpec.value
+            },
+            by_type: {
+                skin: {
+                    match: ["skin", "face", "body", "lip", "ear", "hand",
+                            "foot", "arm", "leg", "torso", "head", "neck"],
+                    subsurface_scale: wSkinSss.value,
+                    roughness: wSkinRough.value
+                },
+                eye: {
+                    match: ["eye", "cornea", "iris", "sclera", "moisture", "tear"],
+                    roughness: wEyeRough.value,
+                    specular: 0.8
+                },
+                hair: {
+                    match: ["hair", "brow", "lash", "beard"],
+                    roughness_offset: -0.1,
+                    specular: 0.6
+                },
+                fabric: {
+                    match: ["fabric", "cloth", "cotton", "silk", "shirt",
+                            "pants", "dress", "skirt"],
+                    subsurface_scale: 0.0,
+                    roughness_offset: 0.1
+                },
+                metal: {
+                    match: ["metal", "steel", "gold", "silver", "chrome",
+                            "buckle", "button", "zipper"],
+                    metallic: 1.0,
+                    roughness: 0.3,
+                    specular: 0.8
+                },
+                glass: {
+                    match: ["glass", "lens", "crystal", "gem"],
+                    transmission: 1.0,
+                    roughness: 0.0,
+                    ior: 1.5
+                }
+            }
+        };
+    }
+
+    function saveConfig() {
+        var oConfig = buildConfig();
+        var sJson = JSON.stringify(oConfig, null, 2);
+        ensureDir(sConfigDir);
+        writeFile(sActiveConfig, sJson);
+        return sJson;
+    }
+
+    connect(wPresetCombo, "currentIndexChanged(int)", function(idx) {
+        var sKey = aPresetKeys[idx];
+        loadPreset(sKey);
+    });
+
+    connect(wSaveBtn, "clicked()", function() {
+        saveConfig();
+        MessageBox.information(
+            "Material-Konfiguration gespeichert.\n\n" +
+            "Wird beim naechsten Render automatisch verwendet.",
+            "Materialien", "&OK"
+        );
+    });
+
+    connect(wApplyBtn, "clicked()", function() {
+        var sJson = saveConfig();
+        MessageBox.information(
+            "Konfiguration gespeichert und wird beim Render angewendet.\n\n" +
+            "Starte jetzt das Cloud Render Script.",
+            "Materialien", "&OK"
+        );
+    });
+
+    connect(wCloseBtn, "clicked()", function() {
+        dlg.close();
+    });
+
+    // Initial: Preset laden
+    loadPreset("standard");
+
+    dlg.exec();
+}
+
+// --- Start ---
+showMaterialSidebar();
+
+})();

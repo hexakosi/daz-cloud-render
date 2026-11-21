@@ -1,0 +1,10 @@
+{
+  "name": "Schnelle Vorschau",
+  "description": "Vereinfachte Materialien fuer schnelle Testrender",
+  "global": {
+    "subsurface_scale": 0.0,
+    "specular": 0.5,
+    "roughness": 0.5
+  },
+  "by_type": {}
+}

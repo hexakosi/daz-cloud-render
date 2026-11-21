@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "DAZ Cloud Render Allowlist"
+paths = [
+    '''tests/test_scene/.*''',
+    '''presets/.*\.json''',
+]

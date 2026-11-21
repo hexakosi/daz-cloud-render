@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# DAZ-Inhalte (NIEMALS einchecken!)
+*.duf
+*.dsf
+*.dbz
+*.daz
+*.djl
+*.dsa.bak
+Runtime/
+data/
+
+# Render-Ergebnisse
+*.png
+*.jpg
+*.exr
+*.hdr
+!tests/test_scene/*.blend
+
+# Konfiguration mit Secrets
+.daz-cloud-render.json
+.daz-cloud-render-session.json
+.daz-cloud-render-status.json
+.daz-cloud-render-material-config.json
+
+# Docker
+docker-compose.override.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
