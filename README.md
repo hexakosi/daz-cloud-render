@@ -76,16 +76,25 @@ Oder direkt aus DAZ Studio: **File → Run Script → cloud_render.dsa**
 ## Voraussetzungen
 
 - Python >= 3.8
-- Docker (zum Bauen des Images)
+- Docker (nur fuer lokalen Build; CI baut automatisch)
 - Vast.ai-Account mit API-Key
 - DAZ Studio (fuer die Szenen)
 
-## Docker-Image bauen
+## Docker-Image
+
+Das Image wird automatisch per GitHub Actions gebaut und auf ghcr.io gepusht:
+
+```
+ghcr.io/hexakosi/daz-cloud-render:latest
+```
+
+**Automatischer Build:** Push eines Tags (`v1.0.0`) oder manueller Start unter
+Actions → Docker Publish → Run workflow.
+
+**Lokaler Build** (optional, braucht Docker):
 
 ```bash
 docker build -t daz-cloud-render:latest docker/
-docker tag daz-cloud-render:latest DEIN_USERNAME/daz-cloud-render:latest
-docker push DEIN_USERNAME/daz-cloud-render:latest
 ```
 
 Details: [docs/phase1_anleitung.md](docs/phase1_anleitung.md)

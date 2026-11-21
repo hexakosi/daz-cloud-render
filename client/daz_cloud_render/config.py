@@ -16,7 +16,7 @@ CONFIG_FILE = Path.home() / ".daz-cloud-render.json"
 
 DEFAULTS = {
     "vast_api_key": "",
-    "docker_image": "",
+    "docker_image": "ghcr.io/hexakosi/daz-cloud-render:latest",
     "gpu_name": "RTX_4090",
     "disk_gb": 20,
     "max_session_hours": 4,
