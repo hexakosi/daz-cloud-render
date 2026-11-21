@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    unzip \
     xvfb \
     rsync \
     python3-pip \
@@ -55,6 +56,7 @@ RUN BLENDER_URL="https://download.blender.org/release/Blender${BLENDER_MAJOR}/bl
 # --- Diffeomorphic DAZ Importer installieren ---
 # Blender-Addon-Pfad ermitteln und Addon dorthin kopieren
 RUN BLENDER_ADDONS="/opt/blender/${BLENDER_MAJOR}/scripts/addons" \
+    && mkdir -p "${BLENDER_ADDONS}" \
     && echo "Addon-Pfad: ${BLENDER_ADDONS}" \
     && wget -q -O /tmp/import_daz.zip "https://github.com/Diffeomorphic/import_daz/archive/refs/heads/${DIFFEOMORPHIC_BRANCH}.zip" \
     && mkdir -p /tmp/daz_extract \
